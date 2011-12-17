@@ -217,10 +217,6 @@ long sinaip_query(struct php_sinaip *ps, unsigned int ip)
 		{
 			ps->ptr = BASE_PTR+(i_mid-2)*sizeof(int);
 			ps->index_start[i_mid-1] = htonl(*(int *)(ps->mmap+ps->ptr));
-			/*
-			fseek(ps->fp,BASE_PTR+(i_mid-2)*sizeof(int),SEEK_SET);
-			if (1 != fread(&ps->index_start[i_mid-1],sizeof(int),1,ps->fp)) return 0;
-			ps->index_start[i_mid-1] = htonl(ps->index_start[i_mid-1]);*/
 		}
 		
 		if (ip == ps->index_start[i_mid-1]){
@@ -238,19 +234,11 @@ long sinaip_query(struct php_sinaip *ps, unsigned int ip)
 	{
 		ps->ptr = BASE_PTR+(i_e-2)*sizeof(int);
 		ps->index_start[i_e-1] = htonl(*(int *)(ps->mmap+ps->ptr));
-		/*
-		fseek(ps->fp,BASE_PTR+(i_e-2)*sizeof(int),SEEK_SET);
-		if (1 != fread(&ps->index_start[i_e-1],sizeof(int),1,ps->fp)) return 0;
-		ps->index_start[i_e-1] = htonl(ps->index_start[i_e-1]);*/
 	}
 	if (ps->index_end[i_e-1] == 0)
 	{
 		ps->ptr = BASE_PTR+(ps->nCount+i_e-2)*sizeof(int);
 		ps->index_end[i_e-1] = htonl(*(int *)(ps->mmap+ps->ptr));
-		/*
-		fseek(ps->fp,BASE_PTR+(ps->nCount+i_e-2)*sizeof(int),SEEK_SET);
-		if (1 != fread(&ps->index_end[i_e-1],sizeof(int),1,ps->fp)) return 0;
-		ps->index_end[i_e-1] = htonl(ps->index_end[i_e-1]);*/
 	}
 	if (ps->index_start[i_e] && ip>ps->index_start[i_e-1] && ip<=ps->index_end[i_e-1])
 	{
@@ -376,18 +364,10 @@ char *getstr(struct php_sinaip *ps, unsigned char *len)
 {
 	*len = ps->mmap[ps->ptr++];
 	if (!*len) return NULL;
-	char *data;// = (char *)emalloc(*len+1);
+	char *data;
 	data = ps->mmap+ps->ptr;
-	//memcpy(data,ps->mmap+ps->ptr,*len);
 	ps->ptr+=*len;
 	return data;
-	/*
-	if (fread(len,sizeof(char),1,ps->fp)!=1) return NULL;
-	if (!*len) return NULL;
-	char *data = (char *)emalloc(*len+1);
-	if (fread(data, sizeof(char), *len, ps->fp)!=*len) return NULL;
-	data[*len] = 0;
-	return data;*/
 }
 
 /* {{{ proto string sinaip_search(resource sinaip, unsigned long ip)
@@ -419,15 +399,8 @@ PHP_FUNCTION(sinaip_search)
 		{
 			ps->ptr = BASE_PTR+(ps->nCount*2+key-1)*sizeof(int);
 			ps->index_ptr[key] = htonl(*(int *)(ps->mmap+ps->ptr));
-			//fseek(ps->fp,BASE_PTR+(ps->nCount*2+key-1)*sizeof(int),SEEK_SET);
-			//if (1 != fread(&ps->index_ptr[key],sizeof(int),1,ps->fp)) RETVAL_FALSE;
-			//ps->index_ptr[key] = htonl(ps->index_ptr[key]);
 		}
 		ps->ptr = ps->index_ptr[key]+4;
-		/*fseek(ps->fp,ps->index_ptr[key],SEEK_SET);
-		int nlen = 0;
-		if (1 != fread(&nlen,sizeof(int),1,ps->fp)) RETVAL_FALSE;
-		nlen = htonl(nlen);*/
 		array_init(return_value);
 		
 		unsigned char ilen;
