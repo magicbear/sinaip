@@ -26,6 +26,8 @@
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "php_sinaip.h"
+#include <unistd.h>
+#include <sys/mman.h>
 
 /* If you declare any globals in php_sinaip.h uncomment this:
 ZEND_DECLARE_MODULE_GLOBALS(sinaip)
@@ -33,7 +35,7 @@ ZEND_DECLARE_MODULE_GLOBALS(sinaip)
 
 #define BASE_PTR 5
 #define	PHP_SINAIP_OBJECT_TAG			"sinaip handler"
-#define PHP_SINAIP_MODULE_VERSION "0.2"
+#define PHP_SINAIP_MODULE_VERSION "0.4"
 
 /* True global resources - no need for thread safety here */
 static int le_sinaip;
@@ -44,6 +46,7 @@ static int le_sinaip;
  */
 const zend_function_entry sinaip_functions[] = {
 	PHP_FE(sinaip_init,	NULL)
+	PHP_FE(sinaip_preload,	NULL)
 	PHP_FE(sinaip_count,	NULL)
 	PHP_FE(sinaip_search,	NULL)
 	PHP_FE(sinaip_close,	NULL)
@@ -117,6 +120,7 @@ static ZEND_RSRC_DTOR_FUNC(php_sinaip_dtor)
 		efree(ps->index_start);
 		efree(ps->index_end);
 		efree(ps->index_ptr);
+		munmap(ps->mmap, ps->size);
 		
 		DELREF_SINAIP(ps->zt);
 		efree(ps);
@@ -211,9 +215,12 @@ long sinaip_query(struct php_sinaip *ps, unsigned int ip)
 		
 		if (ps->index_start[i_mid-1] == 0)
 		{
+			ps->ptr = BASE_PTR+(i_mid-2)*sizeof(int);
+			ps->index_start[i_mid-1] = htonl(*(int *)(ps->mmap+ps->ptr));
+			/*
 			fseek(ps->fp,BASE_PTR+(i_mid-2)*sizeof(int),SEEK_SET);
 			if (1 != fread(&ps->index_start[i_mid-1],sizeof(int),1,ps->fp)) return 0;
-			ps->index_start[i_mid-1] = htonl(ps->index_start[i_mid-1]);
+			ps->index_start[i_mid-1] = htonl(ps->index_start[i_mid-1]);*/
 		}
 		
 		if (ip == ps->index_start[i_mid-1]){
@@ -229,15 +236,21 @@ long sinaip_query(struct php_sinaip *ps, unsigned int ip)
 	}
 	if (ps->index_start[i_e-1] == 0)
 	{
+		ps->ptr = BASE_PTR+(i_e-2)*sizeof(int);
+		ps->index_start[i_e-1] = htonl(*(int *)(ps->mmap+ps->ptr));
+		/*
 		fseek(ps->fp,BASE_PTR+(i_e-2)*sizeof(int),SEEK_SET);
 		if (1 != fread(&ps->index_start[i_e-1],sizeof(int),1,ps->fp)) return 0;
-		ps->index_start[i_e-1] = htonl(ps->index_start[i_e-1]);
+		ps->index_start[i_e-1] = htonl(ps->index_start[i_e-1]);*/
 	}
 	if (ps->index_end[i_e-1] == 0)
 	{
+		ps->ptr = BASE_PTR+(ps->nCount+i_e-2)*sizeof(int);
+		ps->index_end[i_e-1] = htonl(*(int *)(ps->mmap+ps->ptr));
+		/*
 		fseek(ps->fp,BASE_PTR+(ps->nCount+i_e-2)*sizeof(int),SEEK_SET);
 		if (1 != fread(&ps->index_end[i_e-1],sizeof(int),1,ps->fp)) return 0;
-		ps->index_end[i_e-1] = htonl(ps->index_end[i_e-1]);
+		ps->index_end[i_e-1] = htonl(ps->index_end[i_e-1]);*/
 	}
 	if (ps->index_start[i_e] && ip>ps->index_start[i_e-1] && ip<=ps->index_end[i_e-1])
 	{
@@ -293,7 +306,47 @@ PHP_FUNCTION(sinaip_init)
 	ps->index_end = (unsigned int *)ecalloc(ps->nCount+1, sizeof(int));
 	ps->index_ptr = (unsigned int *)ecalloc(ps->nCount+1, sizeof(int));
 	
+	fseek(ps->fp,0,SEEK_END);
+	ps->size = ftell(ps->fp);
+	ps->mmap=mmap(0, ps->size, PROT_READ, MAP_SHARED, fileno(ps->fp), 0);
+	
 	RETVAL_RESOURCE(ps->rsrc_id);
+}
+/* }}} */
+
+/* {{{ proto string sinaip_preload(resource sinaip)
+   Load library index to memory */
+PHP_FUNCTION(sinaip_preload)
+{
+	zval *arg = NULL;
+	int arg_len, len;
+	struct php_sinaip *ps;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &arg, &arg_len) == FAILURE) {
+		return;
+	}
+	ZEND_FETCH_RESOURCE(ps, struct php_sinaip *, &arg, -1, PHP_SINAIP_OBJECT_TAG,le_sinaip);
+
+	if (ps == NULL) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Can't access sinaip");
+		RETURN_FALSE;
+	}
+	
+	fseek(ps->fp, BASE_PTR, SEEK_SET);
+	
+	if (fread((ps->index_start+1), sizeof(int), ps->nCount, ps->fp) != ps->nCount) RETVAL_FALSE;
+	if (fread((ps->index_end+1), sizeof(int), ps->nCount, ps->fp) != ps->nCount) RETVAL_FALSE;
+	if (fread((ps->index_ptr+1), sizeof(int), ps->nCount, ps->fp) != ps->nCount) RETVAL_FALSE;
+	
+	int i;
+	for (i=1;i<=ps->nCount;i++)
+	{
+		ps->index_start[i] = htonl(ps->index_start[i]);
+		ps->index_end[i] = htonl(ps->index_end[i]);
+		ps->index_ptr[i] = htonl(ps->index_ptr[i]);
+	}
+	
+	RETVAL_TRUE;
 }
 /* }}} */
 
@@ -321,12 +374,20 @@ PHP_FUNCTION(sinaip_count)
 
 char *getstr(struct php_sinaip *ps, unsigned char *len)
 {
+	*len = ps->mmap[ps->ptr++];
+	if (!*len) return NULL;
+	char *data;// = (char *)emalloc(*len+1);
+	data = ps->mmap+ps->ptr;
+	//memcpy(data,ps->mmap+ps->ptr,*len);
+	ps->ptr+=*len;
+	return data;
+	/*
 	if (fread(len,sizeof(char),1,ps->fp)!=1) return NULL;
 	if (!*len) return NULL;
 	char *data = (char *)emalloc(*len+1);
 	if (fread(data, sizeof(char), *len, ps->fp)!=*len) return NULL;
 	data[*len] = 0;
-	return data;
+	return data;*/
 }
 
 /* {{{ proto string sinaip_search(resource sinaip, unsigned long ip)
@@ -356,14 +417,17 @@ PHP_FUNCTION(sinaip_search)
 	{
 		if (ps->index_ptr[key] == 0)
 		{
-			fseek(ps->fp,BASE_PTR+(ps->nCount*2+key-1)*sizeof(int),SEEK_SET);
-			if (1 != fread(&ps->index_ptr[key],sizeof(int),1,ps->fp)) RETVAL_FALSE;
-			ps->index_ptr[key] = htonl(ps->index_ptr[key]);
+			ps->ptr = BASE_PTR+(ps->nCount*2+key-1)*sizeof(int);
+			ps->index_ptr[key] = htonl(*(int *)(ps->mmap+ps->ptr));
+			//fseek(ps->fp,BASE_PTR+(ps->nCount*2+key-1)*sizeof(int),SEEK_SET);
+			//if (1 != fread(&ps->index_ptr[key],sizeof(int),1,ps->fp)) RETVAL_FALSE;
+			//ps->index_ptr[key] = htonl(ps->index_ptr[key]);
 		}
-		fseek(ps->fp,ps->index_ptr[key],SEEK_SET);
+		ps->ptr = ps->index_ptr[key]+4;
+		/*fseek(ps->fp,ps->index_ptr[key],SEEK_SET);
 		int nlen = 0;
 		if (1 != fread(&nlen,sizeof(int),1,ps->fp)) RETVAL_FALSE;
-		nlen = htonl(nlen);
+		nlen = htonl(nlen);*/
 		array_init(return_value);
 		
 		unsigned char ilen;

@@ -40,6 +40,9 @@ struct php_sinaip
 {
 	FILE *fp;
 	zval *zt;
+	char *mmap;
+	size_t ptr;
+	size_t size;
 	size_t nCount;
 	unsigned int *index_start;
 	unsigned int *index_end;
@@ -54,6 +57,7 @@ PHP_RSHUTDOWN_FUNCTION(sinaip);
 PHP_MINFO_FUNCTION(sinaip);
 
 PHP_FUNCTION(sinaip_init);
+PHP_FUNCTION(sinaip_preload);
 PHP_FUNCTION(sinaip_count);
 PHP_FUNCTION(sinaip_search);
 PHP_FUNCTION(sinaip_close);
